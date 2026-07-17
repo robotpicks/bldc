@@ -28,6 +28,9 @@
 #include "uavcan/equipment/esc/Status.h"
 #include "uavcan/equipment/esc/RawCommand.h"
 #include "uavcan/equipment/esc/RPMCommand.h"
+#include "uavcan/equipment/actuator/Command.h"
+#include "uavcan/equipment/actuator/ArrayCommand.h"
+#include "uavcan/equipment/actuator/Status.h"
 #include "uavcan/protocol/param/GetSet.h"
 #include "uavcan/protocol/GetNodeInfo.h"
 #include "uavcan/protocol/RestartNode.h"
@@ -109,6 +112,7 @@ static THD_FUNCTION(canard_thread, arg);
 // Private functions
 static void calculateTotalCurrent(void);
 static void sendEscStatus(CanardInstance *ins);
+static void sendActuatorStatus(CanardInstance *ins);
 static void sendRtData(CanardInstance *ins);
 static void readUniqueID(uint8_t* out_uid);
 static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer);
@@ -535,6 +539,46 @@ static void sendEscStatus(CanardInstance *ins) {
 		UAVCAN_EQUIPMENT_ESC_STATUS_MAX_SIZE);
 }
 
+/*
+ * Send Actuator Status Message (uavcan.equipment.actuator.Status).
+ * actuator_id reuses the same uavcan_esc_index config field as sendEscStatus's esc_index --
+ * one VESC is either a drive wheel (esc.RawCommand/Status) or a steering actuator
+ * (actuator.ArrayCommand/Status), and this index identifies it either way.
+ * position/speed are DSDL radians/rad-per-second; VESC's own position control
+ * (mc_interface_get_pid_pos_now/get_rpm) works in degrees/mechanical-RPM, so both are
+ * converted here. force is left NAN -- no force/torque sensing on this actuator.
+ */
+static void sendActuatorStatus(CanardInstance *ins) {
+	uavcan_equipment_actuator_Status status;
+	memset(&status, 0, sizeof(status));
+
+	const volatile mc_configuration *conf = mc_interface_get_configuration();
+	const app_configuration *appconf = app_get_configuration();
+
+	status.actuator_id = (uint8_t)appconf->uavcan_esc_index;
+	status.position = mc_interface_get_pid_pos_now() * ((float)M_PI / 180.0f);
+	status.force = NAN;
+	status.speed = (mc_interface_get_rpm() / ((float)conf->si_motor_poles / 2.0)) * (2.0f * (float)M_PI / 60.0f);
+	status.power_rating_pct = (fabsf(mc_interface_get_tot_current()) /
+			conf->l_current_max * conf->l_current_max_scale) * 100.0;
+
+	uavcan_equipment_actuator_Status_encode(&status, msg_buffer);
+
+	static uint8_t transfer_id;
+
+	if (debug_level > 11) {
+		commands_printf("UAVCAN sendActuatorStatus");
+	}
+
+	canardBroadcast(ins,
+		UAVCAN_EQUIPMENT_ACTUATOR_STATUS_SIGNATURE,
+		UAVCAN_EQUIPMENT_ACTUATOR_STATUS_ID,
+		&transfer_id,
+		CANARD_TRANSFER_PRIORITY_LOW,
+		msg_buffer,
+		UAVCAN_EQUIPMENT_ACTUATOR_STATUS_MAX_SIZE);
+}
+
 static void sendRtData(CanardInstance *ins) {
 	vesc_RTData data;
 	memset(&data, 0, sizeof(data));
@@ -761,6 +805,41 @@ static void handle_esc_rpm_command(CanardInstance* ins, CanardRxTransfer* transf
 
 			mc_interface_set_pid_speed(rpm_val);
 			timeout_reset();
+		}
+	}
+}
+
+/*
+ * Handle Actuator Array command (uavcan.equipment.actuator.ArrayCommand).
+ * Looks for an entry whose actuator_id matches this VESC's uavcan_esc_index (the same field
+ * sendActuatorStatus/sendEscStatus use as this VESC's identity, reused here as actuator_id
+ * rather than adding a separate config field). Only COMMAND_TYPE_POSITION is implemented --
+ * UNITLESS/FORCE/SPEED/PWM command types are defined by the DSDL but not handled here.
+ * command_value is DSDL radians; mc_interface_set_pid_pos expects degrees.
+ */
+static void handle_actuator_array_command(CanardInstance* ins, CanardRxTransfer* transfer) {
+	(void)ins;
+
+	uavcan_equipment_actuator_ArrayCommand cmd;
+	memset(&cmd, 0, sizeof(cmd));
+
+	uint8_t *tmp = msg_buffer;
+
+	if (uavcan_equipment_actuator_ArrayCommand_decode_internal(transfer, transfer->payload_len, &cmd, &tmp, 0) >= 0) {
+		uint8_t my_actuator_id = (uint8_t)app_get_configuration()->uavcan_esc_index;
+
+		for (uint8_t i = 0; i < cmd.commands.len; i++) {
+			if (cmd.commands.data[i].actuator_id != my_actuator_id) {
+				continue;
+			}
+
+			if (cmd.commands.data[i].command_type == UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_POSITION) {
+				float pos_deg = cmd.commands.data[i].command_value * (180.0f / (float)M_PI);
+				mc_interface_set_pid_pos(pos_deg);
+				timeout_reset();
+			}
+
+			break;
 		}
 	}
 }
@@ -1216,6 +1295,10 @@ static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer) 
 			handle_esc_status(ins, transfer);
 			break;
 
+		case UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_ID:
+			handle_actuator_array_command(ins, transfer);
+			break;
+
 		case UAVCAN_PROTOCOL_RESTARTNODE_ID:
 			if (debug_level > 0) {
 				commands_printf("RestartNode\n");
@@ -1287,6 +1370,10 @@ static bool shouldAcceptTransfer(const CanardInstance* ins,
 
 		case UAVCAN_EQUIPMENT_ESC_STATUS_ID:
 			*out_data_type_signature = UAVCAN_EQUIPMENT_ESC_STATUS_SIGNATURE;
+			return true;
+
+		case UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_ID:
+			*out_data_type_signature = UAVCAN_EQUIPMENT_ACTUATOR_ARRAYCOMMAND_SIGNATURE;
 			return true;
 
 		case UAVCAN_PROTOCOL_RESTARTNODE_ID:
@@ -1419,8 +1506,10 @@ static THD_FUNCTION(canard_thread, arg) {
 		if (conf->can_status_rate_1 > 0 && UTILS_AGE_S(last_esc_status_time) >= (1.0 / (float)conf->can_status_rate_1)) {
 			last_esc_status_time = chVTGetSystemTimeX();
 			sendEscStatus(&canard_ins);
+			sendActuatorStatus(&canard_ins);
 #ifdef HW_CAN2_DEV
 			sendEscStatus(&canard_ins_if2);
+			sendActuatorStatus(&canard_ins_if2);
 #endif
 
 			if ((conf->can_status_msgs_r1 >> 0) & 1) {
