@@ -811,11 +811,14 @@ static void handle_esc_rpm_command(CanardInstance* ins, CanardRxTransfer* transf
 
 /*
  * Handle Actuator Array command (uavcan.equipment.actuator.ArrayCommand).
- * Looks for an entry whose actuator_id matches this VESC's uavcan_esc_index (the same field
+ * Processes every entry whose actuator_id matches this VESC's uavcan_esc_index (the same field
  * sendActuatorStatus/sendEscStatus use as this VESC's identity, reused here as actuator_id
- * rather than adding a separate config field). Only COMMAND_TYPE_POSITION is implemented --
- * UNITLESS/FORCE/SPEED/PWM command types are defined by the DSDL but not handled here.
- * command_value is DSDL radians; mc_interface_set_pid_pos expects degrees.
+ * rather than adding a separate config field) -- a single transfer may carry more than one
+ * matching entry, e.g. a POSITION entry and a BRAKE entry together. COMMAND_TYPE_POSITION and
+ * the custom COMMAND_TYPE_BRAKE are implemented -- UNITLESS/FORCE/SPEED/PWM command types are
+ * defined by the DSDL but not handled here. command_value is DSDL radians for POSITION;
+ * mc_interface_set_pid_pos expects degrees. For BRAKE, nonzero command_value engages/locks the
+ * brake, zero releases it -- see HW_BRAKE_ENGAGE()/HW_BRAKE_RELEASE().
  */
 static void handle_actuator_array_command(CanardInstance* ins, CanardRxTransfer* transfer) {
 	(void)ins;
@@ -837,9 +840,17 @@ static void handle_actuator_array_command(CanardInstance* ins, CanardRxTransfer*
 				float pos_deg = cmd.commands.data[i].command_value * (180.0f / (float)M_PI);
 				mc_interface_set_pid_pos(pos_deg);
 				timeout_reset();
+			} else if (cmd.commands.data[i].command_type == UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_BRAKE) {
+				if (cmd.commands.data[i].command_value != 0.0f) {
+					HW_BRAKE_ENGAGE();
+				} else {
+					HW_BRAKE_RELEASE();
+				}
 			}
 
-			break;
+			// Don't break: an ArrayCommand may carry more than one entry for this actuator_id
+			// (e.g. a POSITION entry and a BRAKE entry in the same transfer) -- process all of
+			// them rather than only the first.
 		}
 	}
 }

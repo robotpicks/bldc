@@ -87,11 +87,11 @@ void hw_init_gpio(void) {
 	//
 	//CURRENT_FILTER_OFF(); (jaykup - disabled)
 
-	// AUX pin
-	//AUX_OFF();
-	//palSetPadMode(AUX_GPIO, AUX_PIN,
-	//		PAL_MODE_OUTPUT_PUSHPULL |
-	//		PAL_STM32_OSPEED_HIGHEST);
+	// Steering brake -- default engaged (locked) at boot, before anything can drive the motor.
+	HW_BRAKE_ENGAGE();
+	palSetPadMode(HW_BRAKE_GPIO, HW_BRAKE_PIN,
+			PAL_MODE_OUTPUT_PUSHPULL |
+			PAL_STM32_OSPEED_HIGHEST);
 
 	// ADC Pins
 	palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_ANALOG);
