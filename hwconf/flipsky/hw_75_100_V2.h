@@ -38,10 +38,14 @@
 //#define PHASE_FILTER_ON()		palSetPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 //#define PHASE_FILTER_OFF()		palClearPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 
-//#define AUX_GPIO				GPIOC
-//#define AUX_PIN					12
-//#define AUX_ON()				palSetPad(AUX_GPIO, AUX_PIN)
-//#define AUX_OFF()				palClearPad(AUX_GPIO, AUX_PIN)
+// Steering brake coil driver. Reuses the GPIOC12 pad other 75V-class hwconf ports in this
+// family wire up as AUX_GPIO/AUX_PIN (e.g. hwconf/flipsky_official/flipsky_75) -- left
+// commented/unfinished in this repo's port of this board. Verify continuity to the brake
+// driver circuit with a multimeter before trusting this on real hardware.
+#define HW_BRAKE_GPIO			GPIOC
+#define HW_BRAKE_PIN			12
+#define HW_BRAKE_ENGAGE()		palClearPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)  // de-energized = locked
+#define HW_BRAKE_RELEASE()		palSetPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)    // energized = free to turn
 
 //(jaykup) disabled as this is not on the 100_250
 //#define CURRENT_FILTER_ON()		palSetPad(GPIOD, 2)
