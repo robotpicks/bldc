@@ -38,12 +38,16 @@
 //#define PHASE_FILTER_ON()		palSetPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 //#define PHASE_FILTER_OFF()		palClearPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 
-// Steering brake coil driver. Reuses the GPIOC12 pad other 75V-class hwconf ports in this
-// family wire up as AUX_GPIO/AUX_PIN (e.g. hwconf/flipsky_official/flipsky_75) -- left
-// commented/unfinished in this repo's port of this board. Verify continuity to the brake
-// driver circuit with a multimeter before trusting this on real hardware.
-#define HW_BRAKE_GPIO			GPIOC
-#define HW_BRAKE_PIN			12
+// Steering brake coil driver. Reuses PB6 (HW_ICU_PIN below), the servo/PPM decode input --
+// unused on this actuator since app_to_use is UAVCAN, not APP_PPM/APP_PPM_UART, so servodec_init()
+// never runs and the pin is otherwise idle. Do NOT set app_to_use to a PPM app on a steering
+// actuator built with this define, or the brake driver and servo decode will fight over the pin.
+// (Originally GPIOC12, the family-standard AUX pad other 75V-class hwconf ports in this family
+// wire up as AUX_GPIO/AUX_PIN -- left commented/unfinished in this repo's port of this board and
+// unverified against the real brake driver circuit, so moved here instead.) Verify continuity to
+// the brake driver circuit with a multimeter before trusting this on real hardware.
+#define HW_BRAKE_GPIO			GPIOB
+#define HW_BRAKE_PIN			6
 #define HW_BRAKE_ENGAGE()		palClearPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)  // de-energized = locked
 #define HW_BRAKE_RELEASE()		palSetPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)    // energized = free to turn
 
