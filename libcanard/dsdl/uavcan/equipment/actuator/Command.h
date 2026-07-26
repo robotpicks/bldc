@@ -66,7 +66,8 @@ saturated float16 command_value
 #define UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_PWM            4
 
 // Not part of the standard uavcan.equipment.actuator.Command DSDL -- a value private to this
-// fork's steering actuator, meaningful only between rp1_hardware_interface and this firmware.
+// fork's steering actuator, meaningful only between this firmware and the ROS 2 hardware
+// component that drives it (vesc_dronecan_driver, in robotpicks/vesc_dronecan_ros).
 // command_type is a full uint8 field so this doesn't collide with the standard constants above.
 // command_value: nonzero engages/locks the brake, zero releases it.
 #define UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_BRAKE          5
