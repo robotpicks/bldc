@@ -98,8 +98,15 @@ void hw_init_gpio(void) {
 	palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_ANALOG);
 	palSetPadMode(GPIOA, 2, PAL_MODE_INPUT_ANALOG);
 	palSetPadMode(GPIOA, 3, PAL_MODE_INPUT_ANALOG);
-	palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_ANALOG);
-	palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_ANALOG);
+	// GPIOA,5 / GPIOA,6 (ADC_EXT/ADC_EXT2) intentionally NOT analog -- they're the steering
+	// axis's 0/90-degree proximity-sensor digital inputs (HW_ADC_EXT_GPIO/PIN,
+	// HW_ADC_EXT2_GPIO/PIN), read via palReadPad() in sendActuatorStatus(). STM32 disables the
+	// digital input buffer in PAL_MODE_INPUT_ANALOG, so palReadPad() would not give a reliable
+	// reading if left analog. Plain PAL_MODE_INPUT (no pull) -- the sensor's actual output type
+	// (NPN/PNP/push-pull) isn't known yet, so no pull-up/down is assumed; add one here once that's
+	// confirmed on the bench if the input floats.
+	palSetPadMode(GPIOA, 5, PAL_MODE_INPUT);
+	palSetPadMode(GPIOA, 6, PAL_MODE_INPUT);
 
 	palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_ANALOG);
 	palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_ANALOG);
