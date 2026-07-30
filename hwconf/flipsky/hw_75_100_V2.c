@@ -109,7 +109,8 @@ void hw_init_gpio(void) {
 	palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_ANALOG);
 	palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_ANALOG);
 	palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_ANALOG);
-	palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_ANALOG);
+	// GPIOC,5 (ADC_EXT3) intentionally NOT set analog here -- it's HW_BRAKE_GPIO/PIN, already
+	// configured push-pull output above. Setting it analog here would silently undo that.
 }
 
 void hw_setup_adc_channels(void) {
