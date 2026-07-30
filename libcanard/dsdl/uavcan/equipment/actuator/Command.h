@@ -72,6 +72,16 @@ saturated float16 command_value
 // command_value: nonzero engages/locks the brake, zero releases it.
 #define UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_BRAKE          5
 
+// Also private to this fork -- commands the firmware to seek one of the two 0/90-degree
+// proximity-sensor reference positions itself (a closed-loop homing move driven entirely on the
+// VESC; the ROS 2 side only ever sees the resulting home_0deg/home_90deg bits in actuator.Status,
+// it doesn't compute or supervise the seek motion). command_value: 0.0 seeks the 0-degree
+// sensor, 1.0 seeks the 90-degree sensor -- see HOME_TARGET_0DEG/HOME_TARGET_90DEG below and
+// canard_driver.c's handle_actuator_array_command/homing state machine.
+#define UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_HOME           6
+#define UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_HOME_TARGET_0DEG            0.0f
+#define UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_HOME_TARGET_90DEG           1.0f
+
 typedef struct
 {
     // FieldTypes

@@ -91,6 +91,11 @@
 #define ADC_IND_CURR2			4
 #define ADC_IND_CURR3			5
 #define ADC_IND_VIN_SENS		11
+// Neither is a live analog channel on this build: their pins (PA5/PA6, HW_ADC_EXT_GPIO/PIN and
+// HW_ADC_EXT2_GPIO/PIN above) are the steering axis's 0/90-degree proximity-sensor digital
+// inputs, read via palReadPad() in sendActuatorStatus() -- not analog channels. (get-adc 0)/
+// (get-adc 1) will read whatever voltage the digital input happens to see, not a calibrated
+// sensor signal -- do not use.
 #define ADC_IND_EXT				6
 #define ADC_IND_EXT2			7
 // No longer a live analog channel on this build: its pin (PC5) is HW_BRAKE_GPIO/PIN above,
@@ -150,10 +155,12 @@
 #endif
 
 // COMM-port ADC GPIOs. EXT/EXT2 (ADC1/ADC2, PA5/PA6) are the steering axis's 0deg/90deg
-// proximity-sensor inputs -- read via LispBM's (gpio-configure 'pin-adc1 'pin-mode-in) +
-// (gpio-read 'pin-adc1) (or 'pin-adc2), not as analog channels. EXT3 (PC5) is declared here too
-// so 'pin-adc3 resolves in LispBM, but it's the compiled-in HW_BRAKE_GPIO/PIN above at boot --
-// see the comment there before repurposing it via a Lisp script.
+// proximity-sensor digital inputs, read directly in compiled C (sendActuatorStatus() in
+// canard_driver.c, via palReadPad()) and reported over DroneCAN as the private
+// home_0deg/home_90deg bits in actuator.Status -- not through LispBM scripting and not as analog
+// channels (see the ADC_IND_EXT/EXT2 comment above). EXT3 (PC5) is declared here too so
+// 'pin-adc3 still resolves in LispBM for ad-hoc debugging, but it's the compiled-in
+// HW_BRAKE_GPIO/PIN above at boot -- see the comment there before repurposing it via a script.
 #define HW_ADC_EXT_GPIO			GPIOA
 #define HW_ADC_EXT_PIN			5
 #define HW_ADC_EXT2_GPIO		GPIOA
