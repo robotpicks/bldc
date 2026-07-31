@@ -105,6 +105,15 @@ static int debug_level;
 static status_msg_wrapper_t stat_msgs[STATUS_MSGS_TO_STORE];
 static bool refresh_parameters_enabled = true;
 
+// Steering "move to home switch" state -- see UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_HOME
+// in Command.h and homing_tick() below. Entirely private to this fork's steering actuator;
+// unused/inert on drive-wheel VESCs (nothing ever sets homing_active on those).
+#define HOMING_SEEK_ERPM		60.0f	// conservative placeholder -- not tuned on real hardware
+#define HOMING_TIMEOUT_MS		15000	// safety cutout if the target sensor never triggers
+static volatile bool homing_active = false;
+static volatile float homing_target = 0.0f;
+static systime_t homing_start_time = 0;
+
 // Threads
 static THD_WORKING_AREA(canard_thread_wa, 1024);
 static THD_FUNCTION(canard_thread, arg);
@@ -122,6 +131,7 @@ static bool shouldAcceptTransfer(const CanardInstance* ins,
 		CanardTransferType transfer_type,
 		uint8_t source_node_id);
 static void terminal_debug_on(int argc, const char **argv);
+static void homing_tick(void);
 
 /*
 * Firmware Update Stuff
@@ -561,6 +571,16 @@ static void sendActuatorStatus(CanardInstance *ins) {
 	status.speed = (mc_interface_get_rpm() / ((float)conf->si_motor_poles / 2.0)) * (2.0f * (float)M_PI / 60.0f);
 	status.power_rating_pct = (fabsf(mc_interface_get_tot_current()) /
 			conf->l_current_max * conf->l_current_max_scale) * 100.0;
+#if defined(HW_ADC_EXT_GPIO) && defined(HW_ADC_EXT2_GPIO)
+	// Private extension -- see Status.h. Digital reads of the steering axis's 0/90-degree
+	// proximity sensors, repurposed from analog ADC1/ADC2 duty (see hw_75_100_V2.h). Boards
+	// without both pins defined (i.e. anything but this steering-actuator build) always report 0.
+	status.home_0deg = palReadPad(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN) ? 1 : 0;
+	status.home_90deg = palReadPad(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN) ? 1 : 0;
+#else
+	status.home_0deg = 0;
+	status.home_90deg = 0;
+#endif
 
 	uavcan_equipment_actuator_Status_encode(&status, msg_buffer);
 
@@ -814,11 +834,16 @@ static void handle_esc_rpm_command(CanardInstance* ins, CanardRxTransfer* transf
  * Processes every entry whose actuator_id matches this VESC's uavcan_esc_index (the same field
  * sendActuatorStatus/sendEscStatus use as this VESC's identity, reused here as actuator_id
  * rather than adding a separate config field) -- a single transfer may carry more than one
- * matching entry, e.g. a POSITION entry and a BRAKE entry together. COMMAND_TYPE_POSITION and
- * the custom COMMAND_TYPE_BRAKE are implemented -- UNITLESS/FORCE/SPEED/PWM command types are
- * defined by the DSDL but not handled here. command_value is DSDL radians for POSITION;
- * mc_interface_set_pid_pos expects degrees. For BRAKE, nonzero command_value engages/locks the
- * brake, zero releases it -- see HW_BRAKE_ENGAGE()/HW_BRAKE_RELEASE().
+ * matching entry, e.g. a POSITION entry and a BRAKE entry together. COMMAND_TYPE_POSITION, the
+ * custom COMMAND_TYPE_BRAKE, and the custom COMMAND_TYPE_HOME are implemented -- UNITLESS/FORCE/
+ * SPEED/PWM command types are defined by the DSDL but not handled here. command_value is DSDL
+ * radians for POSITION; mc_interface_set_pid_pos expects degrees. For BRAKE, nonzero
+ * command_value engages/locks the brake, zero releases it -- see
+ * HW_BRAKE_ENGAGE()/HW_BRAKE_RELEASE(). For HOME, command_value selects which proximity sensor to
+ * seek (HOME_TARGET_0DEG/HOME_TARGET_90DEG) -- see homing_tick() for the actual seek move; this
+ * handler only arms it. Sending POSITION and HOME together for the same actuator in one transfer
+ * is not a supported combination (both end up calling different motor-control setters) --
+ * the ROS 2 side should not do that.
  */
 static void handle_actuator_array_command(CanardInstance* ins, CanardRxTransfer* transfer) {
 	(void)ins;
@@ -846,6 +871,12 @@ static void handle_actuator_array_command(CanardInstance* ins, CanardRxTransfer*
 				} else {
 					HW_BRAKE_RELEASE();
 				}
+			} else if (cmd.commands.data[i].command_type == UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_HOME) {
+				homing_target = cmd.commands.data[i].command_value;
+				homing_active = true;
+				homing_start_time = chVTGetSystemTimeX();
+				HW_BRAKE_RELEASE(); // must release before the seek move can turn the shaft
+				timeout_reset();
 			}
 
 			// Don't break: an ArrayCommand may carry more than one entry for this actuator_id
@@ -1410,6 +1441,47 @@ static bool shouldAcceptTransfer(const CanardInstance* ins,
 	return false;
 }
 
+/*
+ * Steering "move to home switch" state machine -- see UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_
+ * COMMAND_TYPE_HOME in Command.h. Called every canard_thread iteration (~1ms). The seek itself
+ * runs entirely here in firmware, in a single fixed direction at a conservative low speed --
+ * the steering axis is continuous-rotation (no hard stop, per mechanical_spec.md), so one fixed
+ * direction reaches either proximity sensor from any starting position, at the cost of a
+ * possibly-long-way-around seek in the worst case. Stops (brake engaged, motor braked) as soon
+ * as the requested sensor triggers, or after HOMING_TIMEOUT_MS if it never does (not wired,
+ * already tripped, or wrong direction for this gearing -- not distinguished here).
+ *
+ * HOMING_SEEK_ERPM/HOMING_TIMEOUT_MS are conservative placeholders, not tuned against real
+ * hardware (no bench access when this was written) -- verify the actual seek speed and worst-case
+ * seek time on the bench, with the motor free to brake/stop safely, before trusting this.
+ */
+static void homing_tick(void) {
+	if (!homing_active) {
+		return;
+	}
+
+#if defined(HW_ADC_EXT_GPIO) && defined(HW_ADC_EXT2_GPIO)
+	bool seek_90deg = (homing_target != UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_HOME_TARGET_0DEG);
+	bool sensor_triggered = seek_90deg
+			? (palReadPad(HW_ADC_EXT2_GPIO, HW_ADC_EXT2_PIN) != 0)
+			: (palReadPad(HW_ADC_EXT_GPIO, HW_ADC_EXT_PIN) != 0);
+#else
+	// No proximity-sensor pins on this board -- can't home, bail out immediately rather than
+	// spin the motor with no way to ever detect success.
+	bool sensor_triggered = false;
+#endif
+
+	if (sensor_triggered || ST2MS(chVTTimeElapsedSinceX(homing_start_time)) >= HOMING_TIMEOUT_MS) {
+		mc_interface_brake_now();
+		HW_BRAKE_ENGAGE();
+		homing_active = false;
+		return;
+	}
+
+	mc_interface_set_pid_speed(HOMING_SEEK_ERPM);
+	timeout_reset();
+}
+
 static void terminal_debug_on(int argc, const char **argv) {
 	if (argc == 2) {
 		int level = -1;
@@ -1571,6 +1643,8 @@ static THD_FUNCTION(canard_thread, arg) {
 		if ((ST2MS(chVTTimeElapsedSinceX(jump_delay_start)) >= 500) && (jump_to_bootloader == true)) {
 			flash_helper_jump_to_bootloader();
 		}
+
+		homing_tick();
 
 		chThdSleepMilliseconds(1);
 	}

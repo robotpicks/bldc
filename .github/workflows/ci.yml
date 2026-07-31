@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-firmware:
+    # Only rp1's board is built here -- this repo upstream supports dozens of boards, but CI
+    # only needs to catch regressions in what rp1 actually flashes. Add another `make fw_<board>`
+    # line if a second board comes into use.
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Self-contained: downloads a pinned arm-none-eabi-gcc into bldc/tools/, no apt/sudo
+      # needed (see make/tools.mk). Same command used to build this locally throughout
+      # development.
+      - name: Install ARM toolchain
+        run: make arm_sdk_install
+
+      - name: Build fw_75_100_V2
+        run: make fw_75_100_V2
