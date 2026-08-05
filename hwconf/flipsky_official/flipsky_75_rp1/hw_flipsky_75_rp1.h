@@ -1,28 +1,45 @@
 /*
 	Copyright 2018 Benjamin Vedder	benjamin@vedder.se
+
 	This file is part of the VESC firmware.
+
 	The VESC firmware is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
+
     The VESC firmware is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
+
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
     */
-	
-#ifndef HW_75_100_V2_H_
-#define HW_75_100_V2_H_
 
-#define HW_NAME					"75_100_V2"
+// rp1's own independent copy of hwconf/flipsky_official/flipsky_75's board config -- kept as a
+// full standalone file (not sharing hw_flipsky_75_core.c/h) so the original, untouched official
+// Flipsky_75 board is never modified by rp1-specific changes. Identical to the original in every
+// electrical/ADC respect (calibration constants, ADC channel ordering, phase/current filter,
+// AUX pin) -- the only differences are a real steering-brake driver on PC5 (HW_BRAKE_ENGAGE/
+// RELEASE, matching hw_75_100_V2_rp1.h's implementation) instead of the original's no-op stub,
+// and PA5/PA6 configured as digital inputs (instead of analog) in hw_flipsky_75_rp1.c so the
+// 0/90-degree home-switch reads in canard_driver.c's homing_tick() actually work.
 
-// (jaykup) HW properties
+#ifndef HW_FLIPSKY_75_RP1_H_
+#define HW_FLIPSKY_75_RP1_H_
+
+#define HW_NAME					"Flipsky_75_RP1"
+
+// HW properties
 #define HW_HAS_3_SHUNTS
+#define HW_HAS_PHASE_SHUNTS
+#define HW_HAS_PHASE_FILTERS
 
+// No absolute max current calculation
+#define HW_NO_ABS_MAX_CALC
 
-// Macros  
+// Macros
 #define LED_GREEN_GPIO			GPIOB
 #define LED_GREEN_PIN			5
 #define LED_RED_GPIO			GPIOB
@@ -33,19 +50,18 @@
 #define LED_RED_ON()			palSetPad(LED_RED_GPIO, LED_RED_PIN)
 #define LED_RED_OFF()			palClearPad(LED_RED_GPIO, LED_RED_PIN)
 
-//#define PHASE_FILTER_GPIO		GPIOC
-//#define PHASE_FILTER_PIN		9
-//#define PHASE_FILTER_ON()		palSetPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
-//#define PHASE_FILTER_OFF()		palClearPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
+#define PHASE_FILTER_GPIO		GPIOC
+#define PHASE_FILTER_PIN		9
+#define PHASE_FILTER_ON()		palSetPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
+#define PHASE_FILTER_OFF()		palClearPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 
-//#define AUX_GPIO				GPIOC
-//#define AUX_PIN					12
-//#define AUX_ON()				palSetPad(AUX_GPIO, AUX_PIN)
-//#define AUX_OFF()				palClearPad(AUX_GPIO, AUX_PIN)
+#define AUX_GPIO				GPIOC
+#define AUX_PIN					12
+#define AUX_ON()				palSetPad(AUX_GPIO, AUX_PIN)
+#define AUX_OFF()				palClearPad(AUX_GPIO, AUX_PIN)
 
-//(jaykup) disabled as this is not on the 100_250
-//#define CURRENT_FILTER_ON()		palSetPad(GPIOD, 2)
-//#define CURRENT_FILTER_OFF()	palClearPad(GPIOD, 2)
+#define CURRENT_FILTER_ON()		palSetPad(GPIOD, 2)
+#define CURRENT_FILTER_OFF()	palClearPad(GPIOD, 2)
 
 /*
  * ADC Vector
@@ -75,19 +91,27 @@
 #define HW_ADC_NBR_CONV			6
 
 // ADC Indexes
-#define ADC_IND_SENS1			0
-#define ADC_IND_SENS2			1
-#define ADC_IND_SENS3			2
-#define ADC_IND_CURR1			3
-#define ADC_IND_CURR2			4
-#define ADC_IND_CURR3			5
+#define ADC_IND_SENS1			3
+#define ADC_IND_SENS2			4
+#define ADC_IND_SENS3			5
+#define ADC_IND_CURR1			0
+#define ADC_IND_CURR2			1
+#define ADC_IND_CURR3			2
 #define ADC_IND_VIN_SENS		11
+// Neither is a live analog channel on this board: their pins (PA5/PA6, HW_ADC_EXT_GPIO/PIN and
+// HW_ADC_EXT2_GPIO/PIN below) are the steering axis's 0/90-degree proximity-sensor digital
+// inputs, read via palReadPad() in canard_driver.c's homing_tick() -- not analog channels.
+// (get-adc 0)/(get-adc 1) will read whatever voltage the digital input happens to see, not a
+// calibrated sensor signal -- do not use.
 #define ADC_IND_EXT				6
 #define ADC_IND_EXT2			7
+// No longer a live analog channel on this board: its pin (PC5) is HW_BRAKE_GPIO/PIN below, a
+// digital output, not an ADC input. (get-adc 2) / ADC_VOLTS(ADC_IND_EXT3) will read whatever
+// digital level the brake driver last wrote, not a real external sensor -- do not use.
 #define ADC_IND_EXT3			10
 #define ADC_IND_TEMP_MOS		8
-//#define ADC_IND_TEMP_MOS_2		15
-//#define ADC_IND_TEMP_MOS_3		16
+#define ADC_IND_TEMP_MOS_2		15
+#define ADC_IND_TEMP_MOS_3		16
 #define ADC_IND_TEMP_MOTOR		9
 #define ADC_IND_VREFINT			12
 
@@ -95,19 +119,19 @@
 
 // Component parameters (can be overridden)
 #ifndef V_REG
-#define V_REG					3.413 // (jaykup) Updated from @1zuna's calculations.  75_300 was 3.44
+#define V_REG					3.42
 #endif
 #ifndef VIN_R1
-#define VIN_R1					56000.0 //
+#define VIN_R1					560000.0
 #endif
 #ifndef VIN_R2
-#define VIN_R2					2200.0 //
+#define VIN_R2					21500.0
 #endif
 #ifndef CURRENT_AMP_GAIN
-#define CURRENT_AMP_GAIN		20.0 //
+#define CURRENT_AMP_GAIN		20.0
 #endif
 #ifndef CURRENT_SHUNT_RES
-#define CURRENT_SHUNT_RES		(0.0005 / 3.0) // (jaykup) updated
+#define CURRENT_SHUNT_RES		(0.0005 / 3.0)
 #endif
 
 // Input voltage
@@ -115,12 +139,15 @@
 
 // NTC Termistors
 #define NTC_RES(adc_val)		((4095.0 * 10000.0) / adc_val - 10000.0)
-
-// (jaykup) 273 is C to K conversion
-#define NTC_TEMP(adc_ind)		(1.0 / ((logf(NTC_RES(ADC_Value[adc_ind]) / 10000.0) / 3380.0) + (1.0 / 298.15)) - 273.15) 
+#define NTC_TEMP(adc_ind)		hw75_get_temp()
 
 #define NTC_RES_MOTOR(adc_val)	(10000.0 / ((4095.0 / (float)adc_val) - 1.0)) // Motor temp sensor on low side
+
 #define NTC_TEMP_MOTOR(beta)	(1.0 / ((logf(NTC_RES_MOTOR(ADC_Value[ADC_IND_TEMP_MOTOR]) / 10000.0) / beta) + (1.0 / 298.15)) - 273.15)
+
+#define NTC_TEMP_MOS1()			(1.0 / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOS]) / 10000.0) / 3380.0) + (1.0 / 298.15)) - 273.15)
+#define NTC_TEMP_MOS2()			(1.0 / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOS_2]) / 10000.0) / 3380.0) + (1.0 / 298.15)) - 273.15)
+#define NTC_TEMP_MOS3()			(1.0 / ((logf(NTC_RES(ADC_Value[ADC_IND_TEMP_MOS_3]) / 10000.0) / 3380.0) + (1.0 / 298.15)) - 273.15)
 
 // Voltage on ADC channel
 #define ADC_VOLTS(ch)			((float)ADC_Value[ch] / 4096.0 * V_REG)
@@ -137,11 +164,18 @@
 #define CURR3_DOUBLE_SAMPLE		0
 #endif
 
-// COMM-port ADC GPIOs
+// COMM-port ADC GPIOs. EXT/EXT2 (ADC1/ADC2, PA5/PA6) are the steering axis's 0deg/90deg
+// proximity-sensor digital inputs, read directly in compiled C (canard_driver.c's
+// homing_tick(), via palReadPad()) -- not through LispBM scripting and not as analog channels
+// (see the ADC_IND_EXT/EXT2 comment above). EXT3 (PC5) is declared here too so 'pin-adc3 still
+// resolves in LispBM for ad-hoc debugging, but it's the compiled-in HW_BRAKE_GPIO/PIN below at
+// boot -- see the comment there before repurposing it via a script.
 #define HW_ADC_EXT_GPIO			GPIOA
 #define HW_ADC_EXT_PIN			5
 #define HW_ADC_EXT2_GPIO		GPIOA
 #define HW_ADC_EXT2_PIN			6
+#define HW_ADC_EXT3_GPIO		GPIOC
+#define HW_ADC_EXT3_PIN			5
 
 // UART Peripheral
 #define HW_UART_DEV				SD3
@@ -151,7 +185,7 @@
 #define HW_UART_RX_PORT			GPIOB
 #define HW_UART_RX_PIN			11
 
-// Permanent UART Peripheral - (jaykup) for UART2 port
+// Permanent UART Peripheral (for NRF51)
 #define HW_UART_P_BAUD			115200
 #define HW_UART_P_DEV			SD4
 #define HW_UART_P_GPIO_AF		GPIO_AF_UART4
@@ -159,13 +193,6 @@
 #define HW_UART_P_TX_PIN		10
 #define HW_UART_P_RX_PORT		GPIOC
 #define HW_UART_P_RX_PIN		11
-
-// (jaykup) should be disabled as this unit has no bluetooth module to program
-// NRF SWD
-//#define NRF5x_SWDIO_GPIO		GPIOA
-//#define NRF5x_SWDIO_PIN			15
-//#define NRF5x_SWCLK_GPIO		GPIOB
-//#define NRF5x_SWCLK_PIN			3
 
 // ICU Peripheral for servo decoding
 #define HW_USE_SERVO_TIM4
@@ -197,9 +224,7 @@
 #define HW_ENC_TIM_CLK_EN()		RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE)
 #define HW_ENC_EXTI_PORTSRC		EXTI_PortSourceGPIOC
 #define HW_ENC_EXTI_PINSRC		EXTI_PinSource8
-#define HW_ENC_EXTI_CH			EXTI9_5_IRQn
 #define HW_ENC_EXTI_LINE		EXTI_Line8
-#define HW_ENC_EXTI_ISR_VEC		EXTI9_5_IRQHandler
 #define HW_ENC_TIM_ISR_CH		TIM3_IRQn
 #define HW_ENC_TIM_ISR_VEC		TIM3_IRQHandler
 
@@ -226,70 +251,61 @@
 #define READ_HALL2()			palReadPad(HW_HALL_ENC_GPIO2, HW_HALL_ENC_PIN2)
 #define READ_HALL3()			palReadPad(HW_HALL_ENC_GPIO3, HW_HALL_ENC_PIN3)
 
+//filters
+#ifndef MCCONF_FOC_PHASE_FILTER_ENABLE
+#define MCCONF_FOC_PHASE_FILTER_ENABLE  false // Use phase voltage filters when available
+#endif
+
 // Override dead time. See the stm32f4 reference manual for calculating this value.
-#define HW_DEAD_TIME_NSEC		660.0
+#define HW_DEAD_TIME_NSEC		1000.0
 
 // Default setting overrides
 #ifndef MCCONF_L_MIN_VOLTAGE
-#define MCCONF_L_MIN_VOLTAGE			12.0	// (jaykup) (flipsky firmware)
+#define MCCONF_L_MIN_VOLTAGE			12.0		// Minimum input voltage
 #endif
 #ifndef MCCONF_L_MAX_VOLTAGE
-#define MCCONF_L_MAX_VOLTAGE			90.0	// (jaykup) (flipsky firmware)
+#define MCCONF_L_MAX_VOLTAGE			90.0	// Maximum input voltage
 #endif
 #ifndef MCCONF_DEFAULT_MOTOR_TYPE
 #define MCCONF_DEFAULT_MOTOR_TYPE		MOTOR_TYPE_FOC
 #endif
 #ifndef MCCONF_FOC_F_ZV
-#define MCCONF_FOC_F_ZV					30000.0 // (jaykup) (flipsky firmware)
+#define MCCONF_FOC_F_ZV					30000.0
 #endif
 #ifndef MCCONF_L_MAX_ABS_CURRENT
-#define MCCONF_L_MAX_ABS_CURRENT		150.0	// (jaykup) (flipsky firmware) The maximum absolute current above which a fault is generated
+#define MCCONF_L_MAX_ABS_CURRENT		420.0	// The maximum absolute current above which a fault is generated
 #endif
 #ifndef MCCONF_FOC_SAMPLE_V0_V7
-#define MCCONF_FOC_SAMPLE_V0_V7			false	// (jaykup) unit has 3 battery shunts so this needs to be off - Run control loop in both v0 and v7 (requires phase shunts)
+#define MCCONF_FOC_SAMPLE_V0_V7			false	// Run control loop in both v0 and v7 (requires phase shunts)
 #endif
 #ifndef MCCONF_L_IN_CURRENT_MAX
-#define MCCONF_L_IN_CURRENT_MAX			100.0	// (jaykup) (flipsky firmware) Input current limit in Amperes (Upper)
+#define MCCONF_L_IN_CURRENT_MAX			250.0	// Input current limit in Amperes (Upper)
 #endif
 #ifndef MCCONF_L_IN_CURRENT_MIN
-#define MCCONF_L_IN_CURRENT_MIN			-100.0	// (jaykup) (flipsky firmware) Input current limit in Amperes (Lower)
-#endif
-#ifndef MCCONF_L_RPM_MAX
-#define MCCONF_L_RPM_MAX				150000.0	// (jaykup) (flipsky firmware) The motor speed limit (Upper)
-#endif
-#ifndef MCCONF_L_RPM_MIN
-#define MCCONF_L_RPM_MIN				-150000.0	// (jaykup) (flipsky firmware) The motor speed limit (Lower)
-#endif
-#ifndef MCCONF_SI_BATTERY_CELLS
-#define MCCONF_SI_BATTERY_CELLS			12 // (jaykup) Battery Cells
-#endif
-#ifndef MCCONF_SI_BATTERY_AH
-#define MCCONF_SI_BATTERY_AH			10.0 // (jaykup) Battery amp hours
-#endif
-
-// (jaykup) Suggested defaults
-#ifndef MCCONF_FOC_PHASE_FILTER_ENABLE
-#define MCCONF_FOC_PHASE_FILTER_ENABLE  false // Use phase voltage filters when available
+#define MCCONF_L_IN_CURRENT_MIN			-200.0	// Input current limit in Amperes (Lower)
 #endif
 
 // Setting limits
-#define HW_LIM_CURRENT			-120.0, 120.0 // (jaykup) phase amps
-#define HW_LIM_CURRENT_IN		-120.0, 120.0 // (jaykup) battery amps
-#define HW_LIM_CURRENT_ABS		0.0, 200 // (jaykup) abs phase amps
-#define HW_LIM_VIN				6.0, 120.0 // (jaykup)
-#define HW_LIM_ERPM				-200e3, 200e3 // (jaykup)
+#define HW_LIM_CURRENT			-400.0, 400.0
+#define HW_LIM_CURRENT_IN		-400.0, 400.0
+#define HW_LIM_CURRENT_ABS		0.0, 480.0
+#define HW_LIM_VIN				11.0, 90.0
+#define HW_LIM_ERPM				-200e3, 200e3
 #define HW_LIM_DUTY_MIN			0.0, 0.1
 #define HW_LIM_DUTY_MAX			0.0, 0.99
 #define HW_LIM_TEMP_FET			-40.0, 110.0
 
-// No steering brake hardware on this board -- unlike hw_75_100_V2_rp1.h (which repurposes its
-// PC5 analog pin for a real SSR-driven brake, see that file's comment), no pin on this board
-// has been vetted as safe/unused to repurpose the same way. libcanard/canard_driver.c's
-// steering-brake path (HW_BRAKE_ENGAGE/RELEASE) needs these to exist to link at all, even on
-// boards -- like this one -- that will only ever run as a drive wheel (esc_index, not
-// actuator_id) and so never actually exercise that path. No-ops, not a real pin toggle -- same
-// stub as hwconf/flipsky_official/flipsky_75/hw_flipsky_75_core.h.
-#define HW_BRAKE_ENGAGE()		do { } while (0)
-#define HW_BRAKE_RELEASE()		do { } while (0)
+// HW-specific functions
+float hw75_get_temp(void);
 
-#endif /* HW_75_100_V2_H_ */
+// Steering brake coil driver, ported from hw_75_100_V2_rp1.h's verified implementation: reuses
+// PC5 (this board's ADC_IND_EXT3 pin, "IN15" in the ADC vector above) as a digital enable/
+// disable output for an external SSR switching the brake coil supply, instead of an analog
+// input. Pin mode is set in hw_flipsky_75_rp1.c's hw_init_gpio(). Verify continuity to the
+// actual SSR/brake-coil driver circuit with a multimeter before trusting this on real hardware.
+#define HW_BRAKE_GPIO			GPIOC
+#define HW_BRAKE_PIN			5
+#define HW_BRAKE_ENGAGE()		palClearPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)  // de-energized = locked
+#define HW_BRAKE_RELEASE()		palSetPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)    // energized = free to turn
+
+#endif /* HW_FLIPSKY_75_RP1_H_ */

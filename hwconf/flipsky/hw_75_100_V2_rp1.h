@@ -13,10 +13,10 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
     */
 	
-#ifndef HW_75_100_V2_H_
-#define HW_75_100_V2_H_
+#ifndef HW_75_100_V2_RP1_H_
+#define HW_75_100_V2_RP1_H_
 
-#define HW_NAME					"75_100_V2"
+#define HW_NAME					"75_100_V2_rp1"
 
 // (jaykup) HW properties
 #define HW_HAS_3_SHUNTS
@@ -38,10 +38,19 @@
 //#define PHASE_FILTER_ON()		palSetPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 //#define PHASE_FILTER_OFF()		palClearPad(PHASE_FILTER_GPIO, PHASE_FILTER_PIN)
 
-//#define AUX_GPIO				GPIOC
-//#define AUX_PIN					12
-//#define AUX_ON()				palSetPad(AUX_GPIO, AUX_PIN)
-//#define AUX_OFF()				palClearPad(AUX_GPIO, AUX_PIN)
+// Steering brake coil driver. Reuses PC5 (ADC_EXT3's pin, HW_ADC_EXT3_GPIO/PIN below) --
+// repurposed from analog sensing to a simple digital enable/disable output (not PWM: the brake
+// driver stage, an external SSR switching the 24V coil supply, only needs on/off, driven by this
+// pin's logic level). ADC_IND_EXT3 (channel 10, "IN15" in the ADC vector above) is therefore no
+// longer a valid analog reading once this define is in effect -- see the note by ADC_IND_EXT3.
+// (Previously PB6, the HW_ICU_PIN servo/PPM decode input, reused because it was idle on this
+// UAVCAN-only actuator; moved off it back to its original role now that ADC3 is available
+// instead.) Verify continuity to the actual SSR/brake-coil driver circuit with a multimeter
+// before trusting this on real hardware.
+#define HW_BRAKE_GPIO			GPIOC
+#define HW_BRAKE_PIN			5
+#define HW_BRAKE_ENGAGE()		palClearPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)  // de-energized = locked
+#define HW_BRAKE_RELEASE()		palSetPad(HW_BRAKE_GPIO, HW_BRAKE_PIN)    // energized = free to turn
 
 //(jaykup) disabled as this is not on the 100_250
 //#define CURRENT_FILTER_ON()		palSetPad(GPIOD, 2)
@@ -82,8 +91,16 @@
 #define ADC_IND_CURR2			4
 #define ADC_IND_CURR3			5
 #define ADC_IND_VIN_SENS		11
+// Neither is a live analog channel on this build: their pins (PA5/PA6, HW_ADC_EXT_GPIO/PIN and
+// HW_ADC_EXT2_GPIO/PIN above) are the steering axis's 0/90-degree proximity-sensor digital
+// inputs, read via palReadPad() in sendActuatorStatus() -- not analog channels. (get-adc 0)/
+// (get-adc 1) will read whatever voltage the digital input happens to see, not a calibrated
+// sensor signal -- do not use.
 #define ADC_IND_EXT				6
 #define ADC_IND_EXT2			7
+// No longer a live analog channel on this build: its pin (PC5) is HW_BRAKE_GPIO/PIN above,
+// a digital output, not an ADC input. (get-adc 2) / ADC_VOLTS(ADC_IND_EXT3) will read whatever
+// digital level the brake driver last wrote, not a real external sensor -- do not use.
 #define ADC_IND_EXT3			10
 #define ADC_IND_TEMP_MOS		8
 //#define ADC_IND_TEMP_MOS_2		15
@@ -137,11 +154,19 @@
 #define CURR3_DOUBLE_SAMPLE		0
 #endif
 
-// COMM-port ADC GPIOs
+// COMM-port ADC GPIOs. EXT/EXT2 (ADC1/ADC2, PA5/PA6) are the steering axis's 0deg/90deg
+// proximity-sensor digital inputs, read directly in compiled C (sendActuatorStatus() in
+// canard_driver.c, via palReadPad()) and reported over DroneCAN as the private
+// home_0deg/home_90deg bits in actuator.Status -- not through LispBM scripting and not as analog
+// channels (see the ADC_IND_EXT/EXT2 comment above). EXT3 (PC5) is declared here too so
+// 'pin-adc3 still resolves in LispBM for ad-hoc debugging, but it's the compiled-in
+// HW_BRAKE_GPIO/PIN above at boot -- see the comment there before repurposing it via a script.
 #define HW_ADC_EXT_GPIO			GPIOA
 #define HW_ADC_EXT_PIN			5
 #define HW_ADC_EXT2_GPIO		GPIOA
 #define HW_ADC_EXT2_PIN			6
+#define HW_ADC_EXT3_GPIO		GPIOC
+#define HW_ADC_EXT3_PIN			5
 
 // UART Peripheral
 #define HW_UART_DEV				SD3
@@ -197,9 +222,7 @@
 #define HW_ENC_TIM_CLK_EN()		RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE)
 #define HW_ENC_EXTI_PORTSRC		EXTI_PortSourceGPIOC
 #define HW_ENC_EXTI_PINSRC		EXTI_PinSource8
-#define HW_ENC_EXTI_CH			EXTI9_5_IRQn
 #define HW_ENC_EXTI_LINE		EXTI_Line8
-#define HW_ENC_EXTI_ISR_VEC		EXTI9_5_IRQHandler
 #define HW_ENC_TIM_ISR_CH		TIM3_IRQn
 #define HW_ENC_TIM_ISR_VEC		TIM3_IRQHandler
 
@@ -282,14 +305,4 @@
 #define HW_LIM_DUTY_MAX			0.0, 0.99
 #define HW_LIM_TEMP_FET			-40.0, 110.0
 
-// No steering brake hardware on this board -- unlike hw_75_100_V2_rp1.h (which repurposes its
-// PC5 analog pin for a real SSR-driven brake, see that file's comment), no pin on this board
-// has been vetted as safe/unused to repurpose the same way. libcanard/canard_driver.c's
-// steering-brake path (HW_BRAKE_ENGAGE/RELEASE) needs these to exist to link at all, even on
-// boards -- like this one -- that will only ever run as a drive wheel (esc_index, not
-// actuator_id) and so never actually exercise that path. No-ops, not a real pin toggle -- same
-// stub as hwconf/flipsky_official/flipsky_75/hw_flipsky_75_core.h.
-#define HW_BRAKE_ENGAGE()		do { } while (0)
-#define HW_BRAKE_RELEASE()		do { } while (0)
-
-#endif /* HW_75_100_V2_H_ */
+#endif /* HW_75_100_V2_RP1_H_ */
