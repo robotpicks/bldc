@@ -306,4 +306,14 @@
 // HW-specific functions
 float hw75_get_temp(void);
 
+// No steering brake hardware on this board -- unlike hw_75_100_V2.h (which repurposes its
+// PC5 analog pin for a real SSR-driven brake, see that file's comment), no pin on this board
+// has been vetted as safe/unused to repurpose the same way. libcanard/canard_driver.c's
+// steering-brake path (HW_BRAKE_ENGAGE/RELEASE) needs these to exist to link at all, even on
+// boards -- like this one -- that will only ever run as a drive wheel (esc_index, not
+// actuator_id) and so never actually exercise that path. No-ops, not a real pin toggle:
+// don't repurpose a pin here without checking this board's schematic first.
+#define HW_BRAKE_ENGAGE()		do { } while (0)
+#define HW_BRAKE_RELEASE()		do { } while (0)
+
 #endif /* HW_FLIPSKY_75_CORE_H_ */
