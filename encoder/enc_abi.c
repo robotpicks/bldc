@@ -30,7 +30,7 @@
 #include <string.h>
 #include <math.h>
 
-bool enc_abi_init(ABI_config_t *cfg) {
+bool enc_abi_init(ABI_config_t *cfg, bool use_index) {
 	EXTI_InitTypeDef EXTI_InitStructure;
 
 	memset(&cfg->state, 0, sizeof(ABI_state));
@@ -55,20 +55,24 @@ bool enc_abi_init(ABI_config_t *cfg) {
 
 	TIM_Cmd(cfg->timer, ENABLE);
 
-	// Interrupt on index pulse
+	// Interrupt on index pulse. Skip arming this when there is no physical
+	// index line (AB-only encoders): the I pin then has nothing driving it
+	// but the internal weak pull-up, which is prone to picking up switching
+	// noise from the motor driver and firing spurious "index" resets.
+	if (use_index) {
+		// Connect EXTI Line to pin
+		SYSCFG_EXTILineConfig(cfg->exti_portsrc, cfg->exti_pinsrc);
 
-	// Connect EXTI Line to pin
-	SYSCFG_EXTILineConfig(cfg->exti_portsrc, cfg->exti_pinsrc);
+		// Configure EXTI Line
+		EXTI_InitStructure.EXTI_Line = cfg->exti_line;
+		EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
+		EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
+		EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+		EXTI_Init(&EXTI_InitStructure);
 
-	// Configure EXTI Line
-	EXTI_InitStructure.EXTI_Line = cfg->exti_line;
-	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
-	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising;
-	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-	EXTI_Init(&EXTI_InitStructure);
-
-	// Enable and set EXTI Line Interrupt to the highest priority
-	nvicEnableVector(cfg->exti_ch, 0);
+		// Enable and set EXTI Line Interrupt to the highest priority
+		nvicEnableVector(cfg->exti_ch, 0);
+	}
 
 	return true;
 }

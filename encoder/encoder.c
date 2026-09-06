@@ -54,6 +54,7 @@ static THD_FUNCTION(routine_thread, arg);
 
 // Private functions
 static void terminal_encoder(int argc, const char **argv);
+static void terminal_encoder_raw(int argc, const char **argv);
 static void terminal_encoder_clear_errors(int argc, const char **argv);
 static void terminal_encoder_clear_multiturn(int argc, const char **argv);
 static void timer_start(routine_rate_t rate);
@@ -80,7 +81,7 @@ bool encoder_init(volatile mc_configuration *conf) {
 
 		encoder_cfg_ABI.counts = conf->m_encoder_counts;
 
-		if (!enc_abi_init(&encoder_cfg_ABI)) {
+		if (!enc_abi_init(&encoder_cfg_ABI, conf->foc_sensor_mode != FOC_SENSOR_MODE_ENCODER_AB)) {
 			m_encoder_type_now = ENCODER_TYPE_NONE;
 			return false;
 		}
@@ -308,7 +309,7 @@ bool encoder_init(volatile mc_configuration *conf) {
 
 		encoder_cfg_ABI.counts = conf->m_encoder_counts;
 
-		if (!enc_abi_init(&encoder_cfg_ABI)) {
+		if (!enc_abi_init(&encoder_cfg_ABI, conf->foc_sensor_mode != FOC_SENSOR_MODE_ENCODER_AB)) {
 			m_encoder_type_now = ENCODER_TYPE_NONE;
 			return false;
 		}
@@ -333,6 +334,12 @@ bool encoder_init(volatile mc_configuration *conf) {
 			"Prints the status of the AS5047, AS5x47U, AD2S1205, TLE5012, MT6816, or TS5700N8501 encoder.",
 			0,
 			terminal_encoder);
+
+	terminal_register_command_callback(
+			"encoder_raw",
+			"Prints the raw encoder reading (type, angle, index-found, error rate) for any encoder type, including ABI. Passive read, does not move the motor.",
+			0,
+			terminal_encoder_raw);
 
 	terminal_register_command_callback(
 			"encoder_clear_errors",
@@ -998,6 +1005,46 @@ static void terminal_encoder(int argc, const char **argv) {
 	default:
 		commands_printf("No encoder debug info available.");
 		break;
+	}
+
+	commands_printf(" ");
+}
+
+static const char* encoder_type_name(encoder_type_t type) {
+	switch (type) {
+	case ENCODER_TYPE_NONE: return "NONE";
+	case ENCODER_TYPE_AS504x: return "AS504x";
+	case ENCODER_TYPE_MT6816: return "MT6816";
+	case ENCODER_TYPE_TLE5012: return "TLE5012";
+	case ENCODER_TYPE_AD2S1205_SPI: return "AD2S1205_SPI";
+	case ENCODER_TYPE_SINCOS: return "SINCOS";
+	case ENCODER_TYPE_TS5700N8501: return "TS5700N8501";
+	case ENCODER_TYPE_ABI: return "ABI";
+	case ENCODER_TYPE_AS5x47U: return "AS5x47U";
+	case ENCODER_TYPE_BISSC: return "BISSC";
+	case ENCODER_TYPE_CUSTOM: return "CUSTOM";
+	case ENCODER_TYPE_PWM: return "PWM";
+	case ENCODER_TYPE_PWM_ABI: return "PWM_ABI";
+	case ENCODER_TYPE_MA782: return "MA782";
+	case ENCODER_TYPE_AMT22: return "AMT22";
+	default: return "UNKNOWN";
+	}
+}
+
+// Passive readback of the raw encoder signal: does not drive the motor, safe
+// to call at any speed (including standstill) and for any encoder type.
+static void terminal_encoder_raw(int argc, const char **argv) {
+	(void)argc; (void)argv;
+
+	encoder_type_t type = encoder_is_configured();
+
+	commands_printf("Encoder type   : %s", encoder_type_name(type));
+	commands_printf("Angle (deg)    : %.3f", (double)encoder_read_deg());
+	commands_printf("Index found    : %s", encoder_index_found() ? "yes" : "no");
+	commands_printf("Error rate     : %.4f", (double)encoder_get_error_rate());
+
+	if (type == ENCODER_TYPE_ABI) {
+		commands_printf("Raw timer CNT  : %u / %u", (unsigned int)encoder_cfg_ABI.timer->CNT, (unsigned int)encoder_cfg_ABI.counts);
 	}
 
 	commands_printf(" ");
