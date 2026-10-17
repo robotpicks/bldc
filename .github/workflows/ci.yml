@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-firmware:
+    # Only rp1's board is built here -- this repo upstream supports dozens of boards, but CI
+    # only needs to catch regressions in what rp1 actually flashes: flipsky_75_rp1
+    # (hwconf/flipsky_official/flipsky_75_rp1/). 75_100_V2_rp1 is the superseded community
+    # variant and deliberately not built. Add another `make fw_<board>` line if a second board
+    # comes into use.
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Self-contained: downloads the pinned arm-none-eabi-gcc (make/tools.mk's ARM_SDK_DIR,
+      # 7-2018-q2) into bldc/tools/, no apt/sudo needed. A newer distro arm-none-eabi-gcc does
+      # not build this tree (blackmagic/target/adiv5.c PRIx64), so don't swap this for apt.
+      - name: Install ARM toolchain
+        run: make arm_sdk_install
+
+      - name: Build fw_flipsky_75_rp1
+        run: make fw_flipsky_75_rp1
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipsky_75_rp1
+          path: build/flipsky_75_rp1/flipsky_75_rp1.bin
+          if-no-files-found: error
